@@ -39,6 +39,12 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    implementation(libs.dadb) {
+        // dadb declares junit-platform-native at runtime scope (upstream packaging bug) which drags
+        // JUnit 5 into the app's runtime classpath; exclude the group to keep it out of the APK
+        exclude(group = "org.graalvm.buildtools")
+    }
+    implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

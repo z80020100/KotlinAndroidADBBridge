@@ -9,8 +9,20 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import dadb.AdbKeyPair
+import dadb.Dadb
+import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class AdbBridgeService : Service() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val keyPair by lazy { loadKeyPair() }
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -19,10 +31,60 @@ class AdbBridgeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startAsForegroundService()
         Log.i(TAG, "service alive")
+        verifyRoot()
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
+    }
+
+    private fun verifyRoot() {
+        scope.launch {
+            try {
+                connectRoot().use { dadb ->
+                    Log.i(TAG, "id: ${dadb.shell("id").allOutput.trim()}")
+                    Log.i(TAG, "model: ${dadb.shell("getprop ro.product.model").allOutput.trim()}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "root verification failed", e)
+            }
+        }
+    }
+
+    /** Connects to the local adbd and elevates it to root if needed. Caller must close. */
+    private suspend fun connectRoot(): Dadb {
+        val dadb = Dadb.create(ADBD_HOST, ADBD_PORT, keyPair)
+        if (dadb.isRoot()) return dadb
+        Log.i(TAG, "adbd running as shell, requesting root")
+        runCatching { dadb.open("root:").close() }
+        dadb.close()
+        repeat(ROOT_CONNECT_ATTEMPTS) {
+            delay(ROOT_CONNECT_DELAY_MS)
+            val rooted = runCatching { Dadb.create(ADBD_HOST, ADBD_PORT, keyPair) }.getOrNull() ?: return@repeat
+            if (rooted.isRoot()) return rooted
+            rooted.close()
+        }
+        error("adbd did not become root after $ROOT_CONNECT_ATTEMPTS attempts")
+    }
+
+    // Each retry reconnects with a fresh Dadb on purpose. A reused instance can't survive adbd's root
+    // restart: DadbImpl reconnects only after a local close(), not on adbd's peer-side drop, so the
+    // built-in dadb.root() (which waits on one instance) never observes the restart on this device.
+    private fun Dadb.isRoot(): Boolean = shell("id").allOutput.contains("uid=0")
+
+    /** Loads the adb keypair from app storage, generating it on first run. */
+    private fun loadKeyPair(): AdbKeyPair {
+        val privateKey = File(filesDir, "adbkey")
+        val publicKey = File(filesDir, "adbkey.pub")
+        if (!privateKey.exists() || !publicKey.exists()) {
+            AdbKeyPair.generate(privateKey, publicKey)
+        }
+        return AdbKeyPair.read(privateKey, publicKey)
+    }
 
     private fun startAsForegroundService() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -58,5 +120,9 @@ class AdbBridgeService : Service() {
         const val CHANNEL_ID = "adb_bridge_service"
         const val NOTIFICATION_ID = 1
         const val TAG = "AdbBridgeService"
+        const val ADBD_HOST = "127.0.0.1"
+        const val ADBD_PORT = 5555
+        const val ROOT_CONNECT_ATTEMPTS = 10
+        const val ROOT_CONNECT_DELAY_MS = 500L
     }
 }
