@@ -19,6 +19,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/** Intent extra carrying the shell command for the service to run as root. */
+const val EXTRA_CMD = "cmd"
+
 class AdbBridgeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val keyPair by lazy { loadKeyPair() }
@@ -31,7 +34,7 @@ class AdbBridgeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startAsForegroundService()
         Log.i(TAG, "service alive")
-        verifyRoot()
+        intent?.getStringExtra(EXTRA_CMD)?.let { runCommand(it) }
         return START_STICKY
     }
 
@@ -42,15 +45,14 @@ class AdbBridgeService : Service() {
         super.onDestroy()
     }
 
-    private fun verifyRoot() {
+    private fun runCommand(cmd: String) {
         scope.launch {
             try {
                 connectRoot().use { dadb ->
-                    Log.i(TAG, "id: ${dadb.shell("id").allOutput.trim()}")
-                    Log.i(TAG, "model: ${dadb.shell("getprop ro.product.model").allOutput.trim()}")
+                    Log.i(TAG, "command output: ${dadb.shell(cmd).allOutput.trim()}")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "root verification failed", e)
+                Log.e(TAG, "command execution failed", e)
             }
         }
     }
