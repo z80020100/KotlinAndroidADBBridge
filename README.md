@@ -31,3 +31,27 @@ The open wake path and the privileged command path are deliberately separate:
 - **Run** (`…action.RUN`) — exported, signature-level permission, carries the command.
 
 The wake path must never accept or forward a command. Otherwise any app could bypass the signature gate and run root commands.
+
+## Running a command (signed apps only)
+
+Running a command is gated by a **signature-level permission**, so only an app signed with the same key as ADB Bridge can drive it. The bridge declares:
+
+```xml
+<permission
+    android:name="com.example.adbbridge.permission.RUN_COMMAND"
+    android:protectionLevel="signature" />
+```
+
+A caller declares the matching `<uses-permission>` and sends an **explicit** broadcast to the RUN action with the command in the `cmd` extra:
+
+```kotlin
+val intent = Intent("com.example.adbbridge.action.RUN").apply {
+    setPackage("com.example.adbbridge")
+    putExtra("cmd", "input keyevent 26")  // e.g. toggle the screen
+}
+context.sendBroadcast(intent)
+```
+
+The service runs the command as root through the local adbd and writes the output to logcat. A returned result channel is not implemented yet.
+
+> **Local testing caveat.** `adb shell am broadcast …action.RUN --es cmd "…"` runs as `uid 0`, which is granted every permission — so it exercises the receiver wiring and command execution but does **not** prove the signature gate. Confirming that a differently-signed app is rejected requires a second app signed with another key.
