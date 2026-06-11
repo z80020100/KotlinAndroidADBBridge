@@ -3,13 +3,12 @@ package com.example.adbbridge
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 import androidx.core.content.ContextCompat
 
 class StartReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_START) return
-        Log.i(TAG, "wake requested, starting service")
+        Logger.i(TAG, "wake requested, starting service")
         val serviceIntent = Intent(context, AdbBridgeService::class.java)
         ContextCompat.startForegroundService(context, serviceIntent)
     }
