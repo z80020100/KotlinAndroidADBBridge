@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import dadb.AdbKeyPair
 import dadb.Dadb
@@ -33,7 +32,7 @@ class AdbBridgeService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startAsForegroundService()
-        Log.i(TAG, "service alive")
+        Logger.i(TAG, "service alive")
         intent?.getStringExtra(EXTRA_CMD)?.let { runCommand(it) }
         return START_STICKY
     }
@@ -47,12 +46,13 @@ class AdbBridgeService : Service() {
 
     private fun runCommand(cmd: String) {
         scope.launch {
+            Logger.i(TAG, "running command: $cmd")
             try {
                 connectRoot().use { dadb ->
-                    Log.i(TAG, "command output: ${dadb.shell(cmd).allOutput.trim()}")
+                    Logger.command(TAG, cmd, dadb.shell(cmd))
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "command execution failed", e)
+                Logger.e(TAG, "command execution failed: $cmd", e)
             }
         }
     }
@@ -61,7 +61,7 @@ class AdbBridgeService : Service() {
     private suspend fun connectRoot(): Dadb {
         val dadb = Dadb.create(ADBD_HOST, ADBD_PORT, keyPair)
         if (dadb.isRoot()) return dadb
-        Log.i(TAG, "adbd running as shell, requesting root")
+        Logger.i(TAG, "adbd running as shell, requesting root")
         runCatching { dadb.open("root:").close() }
         dadb.close()
         repeat(ROOT_CONNECT_ATTEMPTS) {
